@@ -2,8 +2,11 @@ package blockchain
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/Mohsen20031203/learn-gochain-core/config"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/block"
@@ -25,16 +28,41 @@ type NodeService struct {
 	repo        Repository
 	config      config.Config
 	mineTrigger chan struct{}
-	broadcaster *network.TCPBroadcaster
+	gossiper    *network.TCPGossiper
+
+	seenMu sync.Mutex
+	seen   map[string]struct{}
 }
 
-func (s *NodeService) SetBroadcaster(b *network.TCPBroadcaster) {
-	s.broadcaster = b
+func (s *NodeService) SetGossiper(g *network.TCPGossiper) {
+	s.gossiper = g
+}
+
+// messageID is a content hash used to deduplicate gossiped messages so a node
+// never processes or re-forwards the same payload twice.
+func messageID(msg network.Message) string {
+	h := sha256.New()
+	h.Write([]byte(msg.Type))
+	h.Write([]byte{':'})
+	h.Write(msg.Data)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func (s *NodeService) markSeen(id string) bool {
+	s.seenMu.Lock()
+	defer s.seenMu.Unlock()
+	if _, ok := s.seen[id]; ok {
+		return false
+	}
+	s.seen[id] = struct{}{}
+	return true
 }
 
 func (s *NodeService) HandleNodeMessage(msg network.Message) {
-	fmt.Println(s.config)
-	fmt.Println("message : ", msg)
+	if !s.markSeen(messageID(msg)) {
+		return
+	}
+
 	switch msg.Type {
 	case "block":
 		var blc block.Block
@@ -51,6 +79,7 @@ func (s *NodeService) HandleNodeMessage(msg network.Message) {
 			return
 		}
 		fmt.Println("block saved from peer:", blc.Hash)
+		s.forward(msg)
 	case "tx":
 		var txs []transaction.Transaction
 		if err := json.Unmarshal(msg.Data, &txs); err != nil {
@@ -58,7 +87,15 @@ func (s *NodeService) HandleNodeMessage(msg network.Message) {
 			return
 		}
 		s.SubmitTransactions(txs)
+		s.forward(msg)
 	}
+}
+
+func (s *NodeService) forward(msg network.Message) {
+	if s.gossiper == nil {
+		return
+	}
+	s.gossiper.Gossip(msg)
 }
 
 func NewService(config config.Config) *NodeService {
@@ -73,6 +110,7 @@ func NewService(config config.Config) *NodeService {
 		repo:        repo,
 		config:      config,
 		mineTrigger: make(chan struct{}),
+		seen:        make(map[string]struct{}),
 	}
 }
 
@@ -184,7 +222,7 @@ func (s *NodeService) mineOnce() {
 	}
 
 	s.saveBlock(blc)
-	s.broadcastBlock(blc)
+	s.gossipBlock(blc)
 
 	if s.node.SizeMempool() == len(tx) {
 		s.node.ClearMempool()
@@ -196,8 +234,8 @@ func (s *NodeService) mineOnce() {
 	}
 }
 
-func (s *NodeService) broadcastBlock(blc *block.Block) {
-	if s.broadcaster == nil {
+func (s *NodeService) gossipBlock(blc *block.Block) {
+	if s.gossiper == nil {
 		return
 	}
 
@@ -211,7 +249,8 @@ func (s *NodeService) broadcastBlock(blc *block.Block) {
 		Data: data,
 	}
 
-	s.broadcaster.Broadcast(msg)
+	s.markSeen(messageID(msg))
+	s.gossiper.Gossip(msg)
 }
 
 func (s *NodeService) saveBlock(b *block.Block) error {

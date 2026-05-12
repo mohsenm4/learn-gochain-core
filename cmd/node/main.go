@@ -32,9 +32,9 @@ func main() {
 		panic(err)
 	}
 
-	// 🔹 Broadcaster
-	broadcaster := network.NewTCPBroadcaster(cfg.Peers)
-	nodeService.SetBroadcaster(broadcaster)
+	// 🔹 Gossiper
+	gossiper := network.NewTCPGossiper(cfg.Peers)
+	nodeService.SetGossiper(gossiper)
 
 	h := handler.NewHandler(nodeService)
 	server := api.NewServer(cfg, h)
