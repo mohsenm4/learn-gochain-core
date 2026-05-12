@@ -38,7 +38,6 @@ func (mp *Mempool) Size() int {
 	return len(mp.transactions)
 }
 
-// RemoveTransaction removes a specific transaction from the mempool by ID.
 func (mp *Mempool) RemoveTransaction(tx transaction.Transaction) {
 	for i, t := range mp.transactions {
 		if t.ID == tx.ID {

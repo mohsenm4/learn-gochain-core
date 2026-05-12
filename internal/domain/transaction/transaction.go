@@ -7,8 +7,7 @@ import (
 	"time"
 )
 
-// TxInput references an unspent output owned by the sender.
-// Signature is simplified: it must equal the referenced output's Address.
+// Simplified signature: must equal the referenced output's Address.
 type TxInput struct {
 	TxID      string `json:"tx_id"`
 	OutIndex  int    `json:"out_index"`
@@ -31,7 +30,6 @@ func (t *Transaction) IsCoinbase() bool {
 	return len(t.Inputs) == 0
 }
 
-// ComputeID returns a deterministic content hash of the transaction.
 func (t *Transaction) ComputeID() string {
 	copyTx := *t
 	copyTx.ID = ""

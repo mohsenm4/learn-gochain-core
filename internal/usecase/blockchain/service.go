@@ -18,16 +18,8 @@ import (
 	"github.com/Mohsen20031203/learn-gochain-core/internal/infrastructure/storage/lvldb"
 )
 
-// MinerReward is the fixed coinbase subsidy paid to the miner of each
-// non-genesis block, in addition to collected fees.
+// Fixed miner subsidy per block, on top of fees.
 const MinerReward = uint64(50)
-
-// 1. validata the tx
-// 2. put the mempool
-// 3. mine a new block
-// 4. put the txs mompool to the new block
-// 5. validate the block and txs
-// 6. save new block to the repo
 
 type NodeService struct {
 	node        *node.Node
@@ -44,8 +36,7 @@ func (s *NodeService) SetGossiper(g *network.TCPGossiper) {
 	s.gossiper = g
 }
 
-// messageID is a content hash used to deduplicate gossiped messages so a node
-// never processes or re-forwards the same payload twice.
+// Content hash used to dedupe gossiped messages.
 func messageID(msg network.Message) string {
 	h := sha256.New()
 	h.Write([]byte(msg.Type))
@@ -123,24 +114,20 @@ func NewService(config config.Config) *NodeService {
 	}
 }
 
-// BootstrapGenesis ensures the chain has a genesis block. It is safe to
-// call on a fresh node (creates and persists the deterministic genesis)
-// or on a node whose repo already has a chain (no-op).
+// Ensures the chain has a genesis; safe to call on fresh or restarted nodes.
 func (s *NodeService) BootstrapGenesis() error {
 	if s.node.GetChainLastBlockHash() != "" {
 		return nil
 	}
 	last, err := s.repo.Get(LastBlockKey)
 	if err == nil && last != nil && last.Hash != "" {
-		// Existing chain in repo — rehydrate tip and UTXO state.
 		return s.rehydrateFromRepo()
 	}
 	genesis := block.NewGenesis()
 	return s.saveBlock(genesis)
 }
 
-// rehydrateFromRepo walks the persisted chain from oldest to newest and
-// replays each block into the node's in-memory state (UTXO + tx index).
+// Replays persisted blocks oldest-to-newest into UTXO and tx index.
 func (s *NodeService) rehydrateFromRepo() error {
 	chain, err := s.GetChain()
 	if err != nil {
@@ -223,8 +210,6 @@ func (s *NodeService) validataBlock(blc block.Block) bool {
 			fmt.Println("Invalid block: genesis block index must be 0")
 			return false
 		}
-		// Genesis acceptance: trust the deterministic genesis or any
-		// block whose PoW matches. Genesis has no PoW requirement.
 		return true
 	}
 
@@ -255,7 +240,6 @@ func (s *NodeService) mineOnce() {
 		return
 	}
 
-	// Re-validate each tx against the current UTXO set; drop conflicts.
 	var included []transaction.Transaction
 	var dropped []transaction.Transaction
 	var totalFee uint64
@@ -374,7 +358,6 @@ func (s *NodeService) GetBlockByHash(block string) (*block.Block, error) {
 	return value, nil
 }
 
-// TxStatus is the API view of a transaction's confirmation state.
 type TxStatus struct {
 	TxID          string `json:"tx_id"`
 	BlockIndex    int    `json:"block_index"`

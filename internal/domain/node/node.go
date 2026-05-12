@@ -18,9 +18,6 @@ type Node struct {
 	txIndex   map[string]int // txID -> block index containing it
 }
 
-// NewNode creates and returns a new Node instance.
-// id is the unique identifier for the node ,
-// difficulty is the mining difficulty for the node's blockchain
 func NewNode(id string, difficulty int) *Node {
 	return &Node{
 		chain:   blockchain.New(difficulty),
@@ -31,19 +28,16 @@ func NewNode(id string, difficulty int) *Node {
 	}
 }
 
-// GetID returns the ID of the node
 func (n *Node) GetID() string {
 	return n.id
 }
 
-// IndexTx records that a transaction was confirmed in the given block index.
 func (n *Node) IndexTx(txID string, blockIndex int) {
 	n.txIndexMu.Lock()
 	defer n.txIndexMu.Unlock()
 	n.txIndex[txID] = blockIndex
 }
 
-// TxBlockIndex returns the block index a transaction was confirmed in.
 func (n *Node) TxBlockIndex(txID string) (int, bool) {
 	n.txIndexMu.RLock()
 	defer n.txIndexMu.RUnlock()
@@ -51,8 +45,7 @@ func (n *Node) TxBlockIndex(txID string) (int, bool) {
 	return idx, ok
 }
 
-// Confirmations returns the number of blocks built on top of and including
-// the block containing txID. 0 means unknown/unconfirmed.
+// Blocks built on top of and including the one holding txID; 0 if unknown.
 func (n *Node) Confirmations(txID string) int {
 	idx, ok := n.TxBlockIndex(txID)
 	if !ok {

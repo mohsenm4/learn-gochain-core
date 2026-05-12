@@ -8,9 +8,7 @@ import (
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/utxo"
 )
 
-// ValidateTx checks that a transaction's inputs reference existing UTXOs,
-// that the signatures match, and that outputs do not exceed inputs.
-// Coinbase transactions (no inputs) skip these checks but must have outputs.
+// Checks inputs exist, signatures match, outputs<=inputs; coinbase is exempt.
 func (n *Node) ValidateTx(tx *transaction.Transaction) error {
 	if tx.IsCoinbase() {
 		if len(tx.Outputs) == 0 {
@@ -46,7 +44,7 @@ func (n *Node) ValidateTx(tx *transaction.Transaction) error {
 	return nil
 }
 
-// Fee returns inputs minus outputs. Zero for coinbase.
+// Inputs minus outputs; zero for coinbase.
 func (n *Node) Fee(tx *transaction.Transaction) uint64 {
 	if tx.IsCoinbase() {
 		return 0

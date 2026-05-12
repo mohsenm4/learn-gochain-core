@@ -25,8 +25,7 @@ func NewSet() *Set {
 	return &Set{utxo: make(map[Key]transaction.TxOutput)}
 }
 
-// Apply spends the transaction's inputs and adds its outputs to the set.
-// Caller must validate the transaction first.
+// Spends inputs and adds outputs; caller must validate first.
 func (s *Set) Apply(tx *transaction.Transaction) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -59,9 +58,7 @@ func (s *Set) BalanceOf(address string) uint64 {
 	return balance
 }
 
-// FindSpendable returns inputs owned by address whose values sum to at
-// least amount, plus the total collected. Returns total < amount if the
-// address does not own enough.
+// Returns inputs of address summing to >= amount, or total<amount if insufficient.
 func (s *Set) FindSpendable(address string, amount uint64) (refs []transaction.TxInput, total uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
