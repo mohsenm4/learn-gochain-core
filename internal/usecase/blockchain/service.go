@@ -101,7 +101,9 @@ func (s *NodeService) forward(msg network.Message) {
 func NewService(config config.Config) *NodeService {
 
 	repo := lvldb.New(config.FileStoragePath)
-	repo.Open()
+	if err := repo.Open(); err != nil {
+		panic(fmt.Errorf("open storage at %q: %w", config.FileStoragePath, err))
+	}
 
 	node := node.NewNode(config.NodeID, config.Difficulty)
 
