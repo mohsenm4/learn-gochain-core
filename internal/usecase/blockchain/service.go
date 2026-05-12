@@ -150,6 +150,7 @@ func (s *NodeService) rehydrateFromRepo() error {
 func (s *NodeService) SubmitTransactions(txs []transaction.Transaction) error {
 	for i := range txs {
 		tx := txs[i]
+		tx.ID = tx.ComputeID()
 		if s.node.HasTransactionMempool(tx.ID) {
 			continue
 		}
