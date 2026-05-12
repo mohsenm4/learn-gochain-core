@@ -34,7 +34,7 @@ func (b *Block) CalculateHash() string {
 	data, _ := json.Marshal(b.Transactions)
 	record :=
 		strconv.FormatInt(int64(b.Index), 10) +
-			b.Timestamp.String() +
+			strconv.FormatInt(b.Timestamp.UnixNano(), 10) +
 			string(data) +
 			b.PrevHash +
 			strconv.FormatInt(int64(b.Nonce), 10)

@@ -23,6 +23,10 @@ func main() {
 	// Usecase
 	nodeService := blockchain.NewService(cfg)
 
+	if err := nodeService.BootstrapGenesis(); err != nil {
+		panic(err)
+	}
+
 	tcpServer := network.NewTCPServer(
 		cfg.TCPAddress,
 		nodeService.HandleNodeMessage,

@@ -7,14 +7,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Mohsen20031203/learn-gochain-core/config"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/block"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/node"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/transaction"
+	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/utxo"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/infrastructure/network"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/infrastructure/storage/lvldb"
 )
+
+// MinerReward is the fixed coinbase subsidy paid to the miner of each
+// non-genesis block, in addition to collected fees.
+const MinerReward = uint64(50)
 
 // 1. validata the tx
 // 2. put the mempool
@@ -86,7 +92,10 @@ func (s *NodeService) HandleNodeMessage(msg network.Message) {
 			fmt.Println("error unmarshall txs from node message:", err)
 			return
 		}
-		s.SubmitTransactions(txs)
+		if err := s.SubmitTransactions(txs); err != nil {
+			fmt.Println("error submitting incoming txs:", err)
+			return
+		}
 		s.forward(msg)
 	}
 }
@@ -114,10 +123,51 @@ func NewService(config config.Config) *NodeService {
 	}
 }
 
-func (s *NodeService) SubmitTransactions(tx []transaction.Transaction) error {
+// BootstrapGenesis ensures the chain has a genesis block. It is safe to
+// call on a fresh node (creates and persists the deterministic genesis)
+// or on a node whose repo already has a chain (no-op).
+func (s *NodeService) BootstrapGenesis() error {
+	if s.node.GetChainLastBlockHash() != "" {
+		return nil
+	}
+	last, err := s.repo.Get(LastBlockKey)
+	if err == nil && last != nil && last.Hash != "" {
+		// Existing chain in repo — rehydrate tip and UTXO state.
+		return s.rehydrateFromRepo()
+	}
+	genesis := block.NewGenesis()
+	return s.saveBlock(genesis)
+}
 
-	for _, t := range tx {
-		s.node.AddTransactionMempool(t)
+// rehydrateFromRepo walks the persisted chain from oldest to newest and
+// replays each block into the node's in-memory state (UTXO + tx index).
+func (s *NodeService) rehydrateFromRepo() error {
+	chain, err := s.GetChain()
+	if err != nil {
+		return err
+	}
+	for i := range chain {
+		b := chain[i]
+		for j := range b.Transactions {
+			tx := b.Transactions[j]
+			s.node.ApplyTx(&tx)
+			s.node.IndexTx(tx.ID, b.Index)
+		}
+		s.node.UpdateChain(b)
+	}
+	return nil
+}
+
+func (s *NodeService) SubmitTransactions(txs []transaction.Transaction) error {
+	for i := range txs {
+		tx := txs[i]
+		if s.node.HasTransactionMempool(tx.ID) {
+			continue
+		}
+		if err := s.node.ValidateTx(&tx); err != nil {
+			return fmt.Errorf("invalid transaction %s: %w", tx.ID, err)
+		}
+		s.node.AddTransactionMempool(tx)
 	}
 	if s.node.SizeMempool() >= s.config.BatchSize {
 		select {
@@ -158,30 +208,34 @@ func (s *NodeService) StartMiner(ctx context.Context) {
 }
 
 func (s *NodeService) validataBlock(blc block.Block) bool {
+	if len(blc.Transactions) == 0 {
+		fmt.Println("Invalid block: no transactions (coinbase required)")
+		return false
+	}
+	if !blc.Transactions[0].IsCoinbase() {
+		fmt.Println("Invalid block: first transaction must be coinbase")
+		return false
+	}
 
 	lastBlockHash := s.node.GetChainLastBlockHash()
-	if lastBlockHash != "" {
-		if !s.node.IsValidNewBlockChain(blc) {
-			fmt.Println("Invalid block: previous hash does not match")
-			return false
-		}
-	} else {
+	if lastBlockHash == "" {
 		if blc.Index != 0 {
 			fmt.Println("Invalid block: genesis block index must be 0")
 			return false
 		}
-		if !s.node.IsValidPoW(&blc) {
-			fmt.Println("Invalid block: proof of work is not valid")
-			return false
-		}
+		// Genesis acceptance: trust the deterministic genesis or any
+		// block whose PoW matches. Genesis has no PoW requirement.
 		return true
 	}
 
+	if !s.node.IsValidNewBlockChain(blc) {
+		fmt.Println("Invalid block: previous hash does not match")
+		return false
+	}
 	if blc.Index < s.node.CountBlocksinChain() {
 		fmt.Println("Invalid block: index is not greater than last block index")
 		return false
 	}
-
 	if !s.node.IsValidPoW(&blc) {
 		fmt.Println("Invalid block: proof of work is not valid")
 		return false
@@ -192,45 +246,62 @@ func (s *NodeService) validataBlock(blc block.Block) bool {
 		fmt.Println("Invalid block: block already exists")
 		return false
 	}
-
 	return true
 }
 
 func (s *NodeService) mineOnce() {
-	tx2 := s.node.GetMempoolTransaction(s.config.BatchSize)
-	if len(tx2) == 0 {
+	candidates := s.node.GetMempoolTransaction(s.config.BatchSize)
+	if len(candidates) == 0 {
 		return
 	}
 
-	tx := make([]transaction.Transaction, len(tx2))
-	copy(tx, tx2)
-
-	lastBlock := s.node.GetChainLastBlockHash()
-
-	var blc *block.Block
-	if lastBlock == "" {
-		blc = block.NewBlock(0, tx, "0")
-	} else {
-		blc = block.NewBlock(s.node.CountBlocksinChain(), tx, lastBlock)
+	// Re-validate each tx against the current UTXO set; drop conflicts.
+	var included []transaction.Transaction
+	var dropped []transaction.Transaction
+	var totalFee uint64
+	for _, tx := range candidates {
+		if err := s.node.ValidateTx(&tx); err != nil {
+			dropped = append(dropped, tx)
+			continue
+		}
+		totalFee += s.node.Fee(&tx)
+		included = append(included, tx)
 	}
 
+	if len(included) == 0 {
+		for _, tx := range dropped {
+			s.node.RemoveTransactionMempool(tx)
+		}
+		return
+	}
+
+	coinbase := transaction.NewCoinbase(s.config.NodeID, MinerReward+totalFee, time.Now().UnixNano())
+	txs := append([]transaction.Transaction{*coinbase}, included...)
+
+	lastBlock := s.node.GetChainLastBlockHash()
+	if lastBlock == "" {
+		fmt.Println("cannot mine: genesis not initialized")
+		return
+	}
+	blc := block.NewBlock(s.node.CountBlocksinChain(), txs, lastBlock)
 	s.node.MineBlock(blc)
 
-	if lastBlock != "" && !s.node.IsValidNewBlockChain(*blc) {
+	if !s.node.IsValidNewBlockChain(*blc) {
 		fmt.Println("Invalid mined block")
 		return
 	}
 
-	s.saveBlock(blc)
-	s.gossipBlock(blc)
-
-	if s.node.SizeMempool() == len(tx) {
-		s.node.ClearMempool()
+	if err := s.saveBlock(blc); err != nil {
+		fmt.Println("error saving mined block:", err)
 		return
 	}
+	s.gossipBlock(blc)
 
-	for _, t := range tx {
-		s.node.RemoveTransactionMempool(t)
+	for _, tx := range included {
+		s.node.RemoveTransactionMempool(tx)
+	}
+	for _, tx := range dropped {
+		s.node.RemoveTransactionMempool(tx)
 	}
 }
 
@@ -254,17 +325,6 @@ func (s *NodeService) gossipBlock(blc *block.Block) {
 }
 
 func (s *NodeService) saveBlock(b *block.Block) error {
-	lastBlock := s.node.GetChainLastBlockHash()
-	if lastBlock != "" {
-		bl, err := s.repo.Get(lastBlock)
-		if err != nil {
-			return err
-		}
-		if err := s.repo.Save(lastBlock, bl); err != nil {
-			return err
-		}
-	}
-
 	if err := s.repo.Save(LastBlockKey, b); err != nil {
 		return err
 	}
@@ -272,6 +332,12 @@ func (s *NodeService) saveBlock(b *block.Block) error {
 		return err
 	}
 	s.node.UpdateChain(*b)
+
+	for i := range b.Transactions {
+		tx := b.Transactions[i]
+		s.node.ApplyTx(&tx)
+		s.node.IndexTx(tx.ID, b.Index)
+	}
 	return nil
 }
 
@@ -306,4 +372,33 @@ func (s *NodeService) GetBlockByHash(block string) (*block.Block, error) {
 		return nil, err
 	}
 	return value, nil
+}
+
+// TxStatus is the API view of a transaction's confirmation state.
+type TxStatus struct {
+	TxID          string `json:"tx_id"`
+	BlockIndex    int    `json:"block_index"`
+	Confirmations int    `json:"confirmations"`
+	Found         bool   `json:"found"`
+}
+
+func (s *NodeService) GetTxStatus(txID string) TxStatus {
+	idx, ok := s.node.TxBlockIndex(txID)
+	if !ok {
+		return TxStatus{TxID: txID, Found: false}
+	}
+	return TxStatus{
+		TxID:          txID,
+		BlockIndex:    idx,
+		Confirmations: s.node.Confirmations(txID),
+		Found:         true,
+	}
+}
+
+func (s *NodeService) GetBalance(address string) uint64 {
+	return s.node.BalanceOf(address)
+}
+
+func (s *NodeService) GetUTXOs(address string) []utxo.Entry {
+	return s.node.UTXOsOf(address)
 }

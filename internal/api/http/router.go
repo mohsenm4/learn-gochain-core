@@ -24,8 +24,11 @@ func NewRouter(handler *handler.Handler) *gin.Engine {
 
 	router.GET("/chain", handler.GetChain)
 	router.POST("/transactions", handler.SubmitTransactions)
+	router.GET("/transactions/:id", handler.GetTxStatus)
 	router.GET("/block/:hash", handler.GetBlockByHash)
 	router.GET("/mempool", handler.GetMempool)
+	router.GET("/balance/:address", handler.GetBalance)
+	router.GET("/utxos/:address", handler.GetUTXOs)
 
 	return router
 }
