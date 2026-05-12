@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -22,36 +23,34 @@ func LoadConfig(path string) (config Config, err error) {
 	viper.SetConfigName("app")
 	viper.SetConfigType("env")
 
+	viper.SetDefault("API_PORT", "9090")
+	viper.SetDefault("BLOCKCHAIN_DIFFICULTY", 3)
+	viper.SetDefault("FILE_STORAGE_PATH", "chainDB")
+	viper.SetDefault("BATCH_SIZE", 1)
+	viper.SetDefault("NODE_ID", "node")
+	viper.SetDefault("TCP_PORT", "0.0.0.0:7000")
+	viper.SetDefault("PEERS", "")
+
 	viper.AutomaticEnv()
 
-	err = viper.ReadInConfig()
-	if err != nil {
+	if err = viper.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			return
+		}
+		err = nil
+	}
+
+	if err = viper.Unmarshal(&config); err != nil {
 		return
 	}
 
-	err = viper.Unmarshal(&config)
-	fmt.Println(config.NodeID)
-
-	for i, p := range config.Peers {
-		if strings.Contains(p, config.TCPAddress) {
+	for i := len(config.Peers) - 1; i >= 0; i-- {
+		if strings.Contains(config.Peers[i], config.TCPAddress) {
 			config.Peers = append(config.Peers[:i], config.Peers[i+1:]...)
 		}
 	}
 
-	if config.Port == "" {
-		viper.SetDefault("API_PORT", "9090")
-	}
-
-	if config.Difficulty == 0 {
-		viper.SetDefault("BLOCKCHAIN_DIFFICULTY", 3)
-	}
-
-	if config.FileStoragePath == "" {
-		viper.SetDefault("FILE_STORAGE_PATH", "chainDB")
-	}
-
-	for _, p := range config.Peers {
-		fmt.Println("port : ", p)
-	}
+	fmt.Println("node:", config.NodeID, "api:", config.Port, "tcp:", config.TCPAddress, "peers:", config.Peers)
 	return
 }

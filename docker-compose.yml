@@ -1,0 +1,59 @@
+services:
+  alice:
+    build: .
+    container_name: gochain-alice
+    environment:
+      NODE_ID: alice
+      API_PORT: "9090"
+      TCP_PORT: "0.0.0.0:7000"
+      PEERS: "bob:7000,carol:7000"
+      BATCH_SIZE: "1"
+      BLOCKCHAIN_DIFFICULTY: "3"
+      FILE_STORAGE_PATH: "/data"
+    ports:
+      - "9090:9090"
+    volumes:
+      - alice-data:/data
+    networks: [chain]
+
+  bob:
+    build: .
+    container_name: gochain-bob
+    environment:
+      NODE_ID: bob
+      API_PORT: "9090"
+      TCP_PORT: "0.0.0.0:7000"
+      PEERS: "alice:7000,carol:7000"
+      BATCH_SIZE: "1"
+      BLOCKCHAIN_DIFFICULTY: "3"
+      FILE_STORAGE_PATH: "/data"
+    ports:
+      - "9091:9090"
+    volumes:
+      - bob-data:/data
+    networks: [chain]
+
+  carol:
+    build: .
+    container_name: gochain-carol
+    environment:
+      NODE_ID: carol
+      API_PORT: "9090"
+      TCP_PORT: "0.0.0.0:7000"
+      PEERS: "alice:7000,bob:7000"
+      BATCH_SIZE: "1"
+      BLOCKCHAIN_DIFFICULTY: "3"
+      FILE_STORAGE_PATH: "/data"
+    ports:
+      - "9092:9090"
+    volumes:
+      - carol-data:/data
+    networks: [chain]
+
+networks:
+  chain:
+
+volumes:
+  alice-data:
+  bob-data:
+  carol-data:
