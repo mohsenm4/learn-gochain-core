@@ -388,3 +388,40 @@ func (s *NodeService) GetBalance(address string) uint64 {
 func (s *NodeService) GetUTXOs(address string) []utxo.Entry {
 	return s.node.UTXOsOf(address)
 }
+
+type ChainInfo struct {
+	NodeID        string `json:"node_id"`
+	Blocks        int    `json:"blocks"`
+	BestBlockHash string `json:"best_block_hash"`
+	Difficulty    int    `json:"difficulty"`
+	MempoolSize   int    `json:"mempool_size"`
+}
+
+func (s *NodeService) GetChainInfo() ChainInfo {
+	return ChainInfo{
+		NodeID:        s.node.GetID(),
+		Blocks:        s.node.CountBlocksinChain(),
+		BestBlockHash: s.node.GetChainLastBlockHash(),
+		Difficulty:    s.node.GetChainDifficulty(),
+		MempoolSize:   s.node.SizeMempool(),
+	}
+}
+
+type NetworkInfo struct {
+	NodeID     string   `json:"node_id"`
+	TCPAddress string   `json:"tcp_address"`
+	APIPort    string   `json:"api_port"`
+	Peers      []string `json:"peers"`
+	PeerCount  int      `json:"peer_count"`
+}
+
+func (s *NodeService) GetNetworkInfo() NetworkInfo {
+	peers := append([]string{}, s.config.Peers...)
+	return NetworkInfo{
+		NodeID:     s.node.GetID(),
+		TCPAddress: s.config.TCPAddress,
+		APIPort:    s.config.Port,
+		Peers:      peers,
+		PeerCount:  len(peers),
+	}
+}

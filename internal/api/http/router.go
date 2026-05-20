@@ -22,6 +22,8 @@ func NewRouter(handler *handler.Handler) *gin.Engine {
 
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
 
+	router.GET("/info", handler.GetInfo)
+	router.GET("/network", handler.GetNetwork)
 	router.GET("/chain", handler.GetChain)
 	router.POST("/transactions", handler.SubmitTransactions)
 	router.GET("/transactions/:id", handler.GetTxStatus)

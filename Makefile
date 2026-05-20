@@ -1,4 +1,4 @@
-.PHONY: up down logs restart clean balance utxos chain mempool
+.PHONY: up down logs restart clean balance utxos chain mempool build-cli info network
 
 up:
 	docker compose up --build -d
@@ -27,3 +27,12 @@ chain:
 
 mempool:
 	curl -s localhost:9090/mempool | jq .
+
+info:
+	curl -s localhost:9090/info | jq .
+
+network:
+	curl -s localhost:9090/network | jq .
+
+build-cli:
+	go build -o bin/gochain-cli ./cmd/cli
