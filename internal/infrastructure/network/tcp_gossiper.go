@@ -47,6 +47,19 @@ func (g *TCPGossiper) AddPeer(addr string) bool {
 	return true
 }
 
+// Unicast variant of Gossip, used for targeted replies (e.g. IBD).
+func (g *TCPGossiper) Send(peer string, msg Message) {
+	if peer == "" || peer == g.ownAddr {
+		return
+	}
+	conn, err := net.Dial("tcp", peer)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	json.NewEncoder(conn).Encode(msg)
+}
+
 func (g *TCPGossiper) Peers() []string {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
