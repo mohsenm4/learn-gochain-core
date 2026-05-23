@@ -6,26 +6,38 @@ import (
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/block"
 )
 
+// Difficulty retargets every AdjustmentInterval blocks toward TargetBlockTime.
+const (
+	TargetBlockTimeSeconds = 10
+	AdjustmentInterval     = 5
+	MinDifficulty          = 1
+)
+
 type Blockchain struct {
 	difficulty int
 	lastHash   string
-	// Count of blocks in the chain
-	height int
+	height     int
 }
 
 func New(difficulty int) *Blockchain {
-	chain := Blockchain{}
-
-	chain.setDifficulty(difficulty)
-	return &chain
+	if difficulty < MinDifficulty {
+		difficulty = MinDifficulty
+	}
+	return &Blockchain{difficulty: difficulty}
 }
 
 func (bc *Blockchain) GetDifficulty() int {
 	return bc.difficulty
 }
 
-func (bc *Blockchain) setDifficulty(difficulty int) {
-	bc.difficulty = difficulty
+func (bc *Blockchain) AdjustDifficulty(actualSeconds int64) {
+	target := int64(TargetBlockTimeSeconds * AdjustmentInterval)
+	switch {
+	case actualSeconds < target/2:
+		bc.difficulty++
+	case actualSeconds > target*2 && bc.difficulty > MinDifficulty:
+		bc.difficulty--
+	}
 }
 
 func (bc *Blockchain) IsValidNewBlock(block *block.Block) bool {

@@ -34,3 +34,7 @@ func (n *Node) MineBlock(b *block.Block) {
 func (s *Node) IsValidPoW(b *block.Block) bool {
 	return s.chain.IsValidPoW(b)
 }
+
+func (n *Node) AdjustDifficulty(actualSeconds int64) {
+	n.chain.AdjustDifficulty(actualSeconds)
+}

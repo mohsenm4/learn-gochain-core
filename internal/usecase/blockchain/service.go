@@ -12,6 +12,7 @@ import (
 
 	"github.com/Mohsen20031203/learn-gochain-core/config"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/block"
+	domainchain "github.com/Mohsen20031203/learn-gochain-core/internal/domain/blockchain"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/node"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/transaction"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/utxo"
@@ -393,7 +394,42 @@ func (s *NodeService) saveBlock(b *block.Block) error {
 		s.node.ApplyTx(&tx)
 		s.node.IndexTx(tx.ID, b.Index)
 	}
+
+	s.maybeAdjustDifficulty(b)
 	return nil
+}
+
+func (s *NodeService) maybeAdjustDifficulty(b *block.Block) {
+	if b.Index == 0 || b.Index%domainchain.AdjustmentInterval != 0 {
+		return
+	}
+	windowStart, err := s.walkBack(b, domainchain.AdjustmentInterval)
+	if err != nil || windowStart == nil {
+		return
+	}
+	elapsed := b.Timestamp.Sub(windowStart.Timestamp).Seconds()
+	before := s.node.GetChainDifficulty()
+	s.node.AdjustDifficulty(int64(elapsed))
+	after := s.node.GetChainDifficulty()
+	if before != after {
+		fmt.Printf("[difficulty] window=%d blocks elapsed=%.1fs %d->%d\n",
+			domainchain.AdjustmentInterval, elapsed, before, after)
+	}
+}
+
+func (s *NodeService) walkBack(from *block.Block, n int) (*block.Block, error) {
+	current := from
+	for i := 0; i < n; i++ {
+		if current.PrevHash == "0" || current.PrevHash == "" {
+			return nil, nil
+		}
+		prev, err := s.repo.Get(current.PrevHash)
+		if err != nil || prev == nil || prev.Hash == "" {
+			return nil, err
+		}
+		current = prev
+	}
+	return current, nil
 }
 
 func (s *NodeService) GetMempoolTransactions() []transaction.Transaction {
