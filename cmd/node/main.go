@@ -37,8 +37,9 @@ func main() {
 	}
 
 	// 🔹 Gossiper
-	gossiper := network.NewTCPGossiper(cfg.Peers)
+	gossiper := network.NewTCPGossiper(cfg.Peers, cfg.TCPAddress)
 	nodeService.SetGossiper(gossiper)
+	nodeService.AnnouncePeers()
 
 	h := handler.NewHandler(nodeService)
 	server := api.NewServer(cfg, h)

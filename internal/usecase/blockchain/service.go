@@ -105,7 +105,46 @@ func (s *NodeService) HandleNodeMessage(msg network.Message) {
 			return
 		}
 		s.forward(msg)
+	case "peers":
+		var peers []string
+		if err := json.Unmarshal(msg.Data, &peers); err != nil {
+			fmt.Println("error unmarshall peers:", err)
+			return
+		}
+		s.handlePeerList(peers)
+		s.forward(msg)
 	}
+}
+
+func (s *NodeService) handlePeerList(peers []string) {
+	if s.gossiper == nil {
+		return
+	}
+	added := false
+	for _, p := range peers {
+		if s.gossiper.AddPeer(p) {
+			added = true
+			fmt.Println("[peers] discovered:", p)
+		}
+	}
+	if added {
+		s.AnnouncePeers()
+	}
+}
+
+func (s *NodeService) AnnouncePeers() {
+	if s.gossiper == nil {
+		return
+	}
+	known := s.gossiper.Peers()
+	known = append(known, s.config.TCPAddress)
+	data, err := json.Marshal(known)
+	if err != nil {
+		return
+	}
+	msg := network.Message{Type: "peers", Data: data}
+	s.markSeen(messageID(msg))
+	s.gossiper.Gossip(msg)
 }
 
 func (s *NodeService) forward(msg network.Message) {
@@ -520,7 +559,12 @@ type NetworkInfo struct {
 }
 
 func (s *NodeService) GetNetworkInfo() NetworkInfo {
-	peers := append([]string{}, s.config.Peers...)
+	var peers []string
+	if s.gossiper != nil {
+		peers = s.gossiper.Peers()
+	} else {
+		peers = append([]string{}, s.config.Peers...)
+	}
 	return NetworkInfo{
 		NodeID:     s.node.GetID(),
 		TCPAddress: s.config.TCPAddress,
