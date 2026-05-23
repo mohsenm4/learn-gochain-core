@@ -58,7 +58,8 @@ func (s *Set) BalanceOf(address string) uint64 {
 	return balance
 }
 
-// Returns inputs of address summing to >= amount, or total<amount if insufficient.
+// Returns unsigned input references for address summing to >= amount,
+// or total<amount if insufficient. Caller must fill Signature and PubKey.
 func (s *Set) FindSpendable(address string, amount uint64) (refs []transaction.TxInput, total uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -68,9 +69,8 @@ func (s *Set) FindSpendable(address string, amount uint64) (refs []transaction.T
 			continue
 		}
 		refs = append(refs, transaction.TxInput{
-			TxID:      k.TxID,
-			OutIndex:  k.Index,
-			Signature: address,
+			TxID:     k.TxID,
+			OutIndex: k.Index,
 		})
 		total += out.Value
 		if total >= amount {
