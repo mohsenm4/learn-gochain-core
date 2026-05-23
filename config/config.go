@@ -16,6 +16,7 @@ type Config struct {
 	BatchSize       int      `mapstructure:"BATCH_SIZE"`
 	Peers           []string `mapstructure:"PEERS"`
 	TCPAddress      string   `mapstructure:"TCP_PORT"`
+	MinerWalletPath string   `mapstructure:"MINER_WALLET_PATH"`
 }
 
 func LoadConfig(path string) (config Config, err error) {
@@ -30,6 +31,7 @@ func LoadConfig(path string) (config Config, err error) {
 	viper.SetDefault("NODE_ID", "node")
 	viper.SetDefault("TCP_PORT", "0.0.0.0:7000")
 	viper.SetDefault("PEERS", "")
+	viper.SetDefault("MINER_WALLET_PATH", "miner.wallet.json")
 
 	viper.AutomaticEnv()
 

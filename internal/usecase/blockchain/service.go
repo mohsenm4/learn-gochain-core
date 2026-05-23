@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/node"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/transaction"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/utxo"
+	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/wallet"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/infrastructure/network"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/infrastructure/storage/lvldb"
 )
@@ -27,6 +29,9 @@ type NodeService struct {
 	config      config.Config
 	mineTrigger chan struct{}
 	gossiper    *network.TCPGossiper
+
+	minerWallet  *wallet.Wallet
+	minerAddress string
 
 	seenMu sync.Mutex
 	seen   map[string]struct{}
@@ -105,15 +110,31 @@ func NewService(config config.Config) *NodeService {
 		panic(fmt.Errorf("open storage at %q: %w", config.FileStoragePath, err))
 	}
 
+	minerWallet, created, err := wallet.LoadOrCreate(config.MinerWalletPath)
+	if err != nil {
+		panic(fmt.Errorf("open miner wallet at %q: %w", config.MinerWalletPath, err))
+	}
+	if created {
+		fmt.Println("[miner] new wallet created at:", config.MinerWalletPath)
+	}
+	fmt.Println("[miner] address:", minerWallet.Address())
+
 	node := node.NewNode(config.NodeID, config.Difficulty)
 
 	return &NodeService{
-		node:        node,
-		repo:        repo,
-		config:      config,
-		mineTrigger: make(chan struct{}),
-		seen:        make(map[string]struct{}),
+		node:         node,
+		repo:         repo,
+		config:       config,
+		mineTrigger:  make(chan struct{}),
+		seen:         make(map[string]struct{}),
+		minerWallet:  minerWallet,
+		minerAddress: minerWallet.Address(),
 	}
+}
+
+// MinerAddress returns the address used for coinbase outputs.
+func (s *NodeService) MinerAddress() string {
+	return s.minerAddress
 }
 
 // Ensures the chain has a genesis; safe to call on fresh or restarted nodes.
@@ -238,9 +259,19 @@ func (s *NodeService) validataBlock(blc block.Block) bool {
 }
 
 func (s *NodeService) mineOnce() {
+	_ = s.mineBlock(false)
+}
+
+// ManualMine mines a block immediately, even if the mempool is empty.
+// Useful for bootstrapping initial miner funds and for manual control during learning.
+func (s *NodeService) ManualMine() error {
+	return s.mineBlock(true)
+}
+
+func (s *NodeService) mineBlock(forced bool) error {
 	candidates := s.node.GetMempoolTransaction(s.config.BatchSize)
-	if len(candidates) == 0 {
-		return
+	if len(candidates) == 0 && !forced {
+		return nil
 	}
 
 	var included []transaction.Transaction
@@ -255,32 +286,29 @@ func (s *NodeService) mineOnce() {
 		included = append(included, tx)
 	}
 
-	if len(included) == 0 {
+	if len(included) == 0 && !forced {
 		for _, tx := range dropped {
 			s.node.RemoveTransactionMempool(tx)
 		}
-		return
+		return nil
 	}
 
-	coinbase := transaction.NewCoinbase(s.config.NodeID, MinerReward+totalFee, time.Now().UnixNano())
+	coinbase := transaction.NewCoinbase(s.minerAddress, MinerReward+totalFee, time.Now().UnixNano())
 	txs := append([]transaction.Transaction{*coinbase}, included...)
 
 	lastBlock := s.node.GetChainLastBlockHash()
 	if lastBlock == "" {
-		fmt.Println("cannot mine: genesis not initialized")
-		return
+		return errors.New("cannot mine: genesis not initialized")
 	}
 	blc := block.NewBlock(s.node.CountBlocksinChain(), txs, lastBlock)
 	s.node.MineBlock(blc)
 
 	if !s.node.IsValidNewBlockChain(*blc) {
-		fmt.Println("Invalid mined block")
-		return
+		return errors.New("invalid mined block")
 	}
 
 	if err := s.saveBlock(blc); err != nil {
-		fmt.Println("error saving mined block:", err)
-		return
+		return fmt.Errorf("save mined block: %w", err)
 	}
 	s.gossipBlock(blc)
 
@@ -290,6 +318,7 @@ func (s *NodeService) mineOnce() {
 	for _, tx := range dropped {
 		s.node.RemoveTransactionMempool(tx)
 	}
+	return nil
 }
 
 func (s *NodeService) gossipBlock(blc *block.Block) {

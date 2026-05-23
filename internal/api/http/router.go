@@ -24,6 +24,7 @@ func NewRouter(handler *handler.Handler) *gin.Engine {
 
 	router.GET("/info", handler.GetInfo)
 	router.GET("/network", handler.GetNetwork)
+	router.GET("/walletinfo", handler.WalletInfo)
 	router.GET("/chain", handler.GetChain)
 	router.POST("/transactions", handler.SubmitTransactions)
 	router.GET("/transactions/:id", handler.GetTxStatus)
@@ -31,6 +32,7 @@ func NewRouter(handler *handler.Handler) *gin.Engine {
 	router.GET("/mempool", handler.GetMempool)
 	router.GET("/balance/:address", handler.GetBalance)
 	router.GET("/utxos/:address", handler.GetUTXOs)
+	router.POST("/mine", handler.Mine)
 
 	return router
 }
