@@ -20,8 +20,19 @@ import (
 	"github.com/Mohsen20031203/learn-gochain-core/internal/infrastructure/storage/lvldb"
 )
 
-// Fixed miner subsidy per block, on top of fees.
-const MinerReward = uint64(50)
+// Subsidy halves every HalvingInterval blocks; reward eventually decays to 0.
+const (
+	InitialReward   = uint64(50)
+	HalvingInterval = 10
+)
+
+func blockReward(height int) uint64 {
+	halvings := height / HalvingInterval
+	if halvings >= 64 {
+		return 0
+	}
+	return InitialReward >> halvings
+}
 
 type NodeService struct {
 	node        *node.Node
@@ -218,6 +229,28 @@ func (s *NodeService) StartMiner(ctx context.Context) {
 	}()
 }
 
+// Without this, a peer could mint unlimited coins by claiming a higher subsidy.
+func (s *NodeService) validateCoinbaseReward(blc block.Block) bool {
+	coinbase := blc.Transactions[0]
+	var claimed uint64
+	for _, out := range coinbase.Outputs {
+		claimed += out.Value
+	}
+
+	var fees uint64
+	for i := 1; i < len(blc.Transactions); i++ {
+		fees += s.node.Fee(&blc.Transactions[i])
+	}
+
+	allowed := blockReward(blc.Index) + fees
+	if claimed > allowed {
+		fmt.Printf("Invalid block: coinbase claims %d, allowed %d (subsidy=%d fees=%d)\n",
+			claimed, allowed, blockReward(blc.Index), fees)
+		return false
+	}
+	return true
+}
+
 func (s *NodeService) validataBlock(blc block.Block) bool {
 	if len(blc.Transactions) == 0 {
 		fmt.Println("Invalid block: no transactions (coinbase required)")
@@ -247,6 +280,9 @@ func (s *NodeService) validataBlock(blc block.Block) bool {
 	}
 	if !s.node.IsValidPoW(&blc) {
 		fmt.Println("Invalid block: proof of work is not valid")
+		return false
+	}
+	if !s.validateCoinbaseReward(blc) {
 		return false
 	}
 
@@ -293,14 +329,17 @@ func (s *NodeService) mineBlock(forced bool) error {
 		return nil
 	}
 
-	coinbase := transaction.NewCoinbase(s.minerAddress, MinerReward+totalFee, time.Now().UnixNano())
+	height := s.node.CountBlocksinChain()
+	subsidy := blockReward(height)
+	coinbase := transaction.NewCoinbase(s.minerAddress, subsidy+totalFee, time.Now().UnixNano())
 	txs := append([]transaction.Transaction{*coinbase}, included...)
 
 	lastBlock := s.node.GetChainLastBlockHash()
 	if lastBlock == "" {
 		return errors.New("cannot mine: genesis not initialized")
 	}
-	blc := block.NewBlock(s.node.CountBlocksinChain(), txs, lastBlock)
+	fmt.Printf("[miner] block %d subsidy=%d fees=%d total=%d\n", height, subsidy, totalFee, subsidy+totalFee)
+	blc := block.NewBlock(height, txs, lastBlock)
 	s.node.MineBlock(blc)
 
 	if !s.node.IsValidNewBlockChain(*blc) {
