@@ -5,3 +5,10 @@
 /internal/infrastructure/storage/file
 /data
 /cmd/gochain/
+
+# Build artifacts
+/bin/
+
+# Local node state — never commit
+/chainDB/
+*.wallet.json
