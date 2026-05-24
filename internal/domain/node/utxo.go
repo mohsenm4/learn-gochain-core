@@ -1,15 +1,25 @@
 package node
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/transaction"
 	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/utxo"
+	"github.com/Mohsen20031203/learn-gochain-core/internal/domain/wallet"
 )
 
-// Checks inputs exist, signatures match, outputs<=inputs; coinbase is exempt.
+// ValidateTx enforces: inputs exist, every input's PubKey hashes to the
+// referenced output's Address, every input's signature verifies against the
+// transaction's SigningHash, no duplicate inputs, outputs<=inputs.
+// Coinbase txs are exempt (no inputs).
 func (n *Node) ValidateTx(tx *transaction.Transaction) error {
+	for i, out := range tx.Outputs {
+		if err := wallet.ValidateAddress(out.Address); err != nil {
+			return fmt.Errorf("output %d: %w", i, err)
+		}
+	}
 	if tx.IsCoinbase() {
 		if len(tx.Outputs) == 0 {
 			return errors.New("coinbase must have at least one output")
@@ -19,6 +29,9 @@ func (n *Node) ValidateTx(tx *transaction.Transaction) error {
 
 	spent := make(map[utxo.Key]struct{}, len(tx.Inputs))
 	var inSum, outSum uint64
+
+	sigHashHex := hex.EncodeToString(tx.SigningHash())
+
 	for _, in := range tx.Inputs {
 		k := utxo.Key{TxID: in.TxID, Index: in.OutIndex}
 		if _, dup := spent[k]; dup {
@@ -30,9 +43,26 @@ func (n *Node) ValidateTx(tx *transaction.Transaction) error {
 		if !ok {
 			return fmt.Errorf("unknown or already-spent utxo %s:%d", in.TxID, in.OutIndex)
 		}
-		if in.Signature != out.Address {
+
+		if in.PubKey == "" {
+			return fmt.Errorf("input %s:%d missing pubkey", in.TxID, in.OutIndex)
+		}
+		pubBytes, err := hex.DecodeString(in.PubKey)
+		if err != nil {
+			return fmt.Errorf("input %s:%d invalid pubkey hex: %w", in.TxID, in.OutIndex, err)
+		}
+		if wallet.DeriveAddress(pubBytes) != out.Address {
+			return fmt.Errorf("input %s:%d pubkey does not match output address", in.TxID, in.OutIndex)
+		}
+
+		ok2, err := wallet.Verify(in.PubKey, sigHashHex, in.Signature)
+		if err != nil {
+			return fmt.Errorf("input %s:%d signature error: %w", in.TxID, in.OutIndex, err)
+		}
+		if !ok2 {
 			return fmt.Errorf("invalid signature for %s:%d", in.TxID, in.OutIndex)
 		}
+
 		inSum += out.Value
 	}
 	for _, out := range tx.Outputs {

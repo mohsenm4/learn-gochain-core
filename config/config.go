@@ -3,7 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
-	"strings"
+	"net"
 
 	"github.com/spf13/viper"
 )
@@ -16,6 +16,8 @@ type Config struct {
 	BatchSize       int      `mapstructure:"BATCH_SIZE"`
 	Peers           []string `mapstructure:"PEERS"`
 	TCPAddress      string   `mapstructure:"TCP_PORT"`
+	PublicAddress   string   `mapstructure:"PUBLIC_ADDR"`
+	MinerWalletPath string   `mapstructure:"MINER_WALLET_PATH"`
 }
 
 func LoadConfig(path string) (config Config, err error) {
@@ -30,6 +32,8 @@ func LoadConfig(path string) (config Config, err error) {
 	viper.SetDefault("NODE_ID", "node")
 	viper.SetDefault("TCP_PORT", "0.0.0.0:7000")
 	viper.SetDefault("PEERS", "")
+	viper.SetDefault("MINER_WALLET_PATH", "miner.wallet.json")
+	viper.SetDefault("PUBLIC_ADDR", "")
 
 	viper.AutomaticEnv()
 
@@ -45,12 +49,21 @@ func LoadConfig(path string) (config Config, err error) {
 		return
 	}
 
+	if config.PublicAddress == "" {
+		_, port, splitErr := net.SplitHostPort(config.TCPAddress)
+		if splitErr == nil && config.NodeID != "" {
+			config.PublicAddress = config.NodeID + ":" + port
+		} else {
+			config.PublicAddress = config.TCPAddress
+		}
+	}
+
 	for i := len(config.Peers) - 1; i >= 0; i-- {
-		if strings.Contains(config.Peers[i], config.TCPAddress) {
+		if config.Peers[i] == config.PublicAddress {
 			config.Peers = append(config.Peers[:i], config.Peers[i+1:]...)
 		}
 	}
 
-	fmt.Println("node:", config.NodeID, "api:", config.Port, "tcp:", config.TCPAddress, "peers:", config.Peers)
+	fmt.Println("node:", config.NodeID, "api:", config.Port, "tcp:", config.TCPAddress, "public:", config.PublicAddress, "peers:", config.Peers)
 	return
 }
