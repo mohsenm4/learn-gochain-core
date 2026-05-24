@@ -93,6 +93,7 @@ func (s *NodeService) rehydrateFromRepo() error {
 }
 
 func (s *NodeService) SubmitTransactions(txs []transaction.Transaction) error {
+	var firstErr error
 	for i := range txs {
 		tx := txs[i]
 		tx.ID = tx.ComputeID()
@@ -100,7 +101,10 @@ func (s *NodeService) SubmitTransactions(txs []transaction.Transaction) error {
 			continue
 		}
 		if err := s.node.ValidateTx(&tx); err != nil {
-			return fmt.Errorf("invalid transaction %s: %w", tx.ID, err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("invalid transaction %s: %w", tx.ID, err)
+			}
+			continue
 		}
 		s.node.AddTransactionMempool(tx)
 	}
@@ -110,5 +114,5 @@ func (s *NodeService) SubmitTransactions(txs []transaction.Transaction) error {
 		default:
 		}
 	}
-	return nil
+	return firstErr
 }

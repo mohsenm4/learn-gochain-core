@@ -24,11 +24,24 @@ func messageID(msg network.Message) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+const seenMaxSize = 10000
+
 func (s *NodeService) markSeen(id string) bool {
 	s.seenMu.Lock()
 	defer s.seenMu.Unlock()
 	if _, ok := s.seen[id]; ok {
 		return false
+	}
+	if len(s.seen) >= seenMaxSize {
+		// Bounded cache: evict half when full. Crude but prevents unbounded growth.
+		i := 0
+		for k := range s.seen {
+			delete(s.seen, k)
+			i++
+			if i >= seenMaxSize/2 {
+				break
+			}
+		}
 	}
 	s.seen[id] = struct{}{}
 	return true
@@ -46,7 +59,7 @@ func (s *NodeService) HandleNodeMessage(msg network.Message) {
 			fmt.Println("error unmarshall block from node message:", err)
 			return
 		}
-		if !s.validataBlock(blc) {
+		if !s.validateBlock(blc) {
 			fmt.Println("received invalid block from peer")
 			return
 		}
@@ -64,7 +77,6 @@ func (s *NodeService) HandleNodeMessage(msg network.Message) {
 		}
 		if err := s.SubmitTransactions(txs); err != nil {
 			fmt.Println("error submitting incoming txs:", err)
-			return
 		}
 		s.forward(msg)
 	case "peers":
@@ -113,7 +125,7 @@ func (s *NodeService) AnnouncePeers() {
 		return
 	}
 	known := s.gossiper.Peers()
-	known = append(known, s.config.TCPAddress)
+	known = append(known, s.config.PublicAddress)
 	data, err := json.Marshal(known)
 	if err != nil {
 		return

@@ -18,7 +18,7 @@ func (s *NodeService) RequestChain() {
 		return
 	}
 	req := GetChainRequest{
-		From:       s.config.TCPAddress,
+		From:       s.config.PublicAddress,
 		HaveHeight: s.node.CountBlocksinChain(),
 	}
 	data, err := json.Marshal(req)
@@ -64,7 +64,7 @@ func (s *NodeService) handleChainResponse(blocks []block.Block) {
 		if b.Index <= s.node.CountBlocksinChain()-1 {
 			continue
 		}
-		if !s.validataBlock(b) {
+		if !s.validateBlock(b) {
 			fmt.Println("[ibd] rejected block at index", b.Index)
 			return
 		}

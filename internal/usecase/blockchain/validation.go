@@ -28,7 +28,7 @@ func (s *NodeService) validateCoinbaseReward(blc block.Block) bool {
 	return true
 }
 
-func (s *NodeService) validataBlock(blc block.Block) bool {
+func (s *NodeService) validateBlock(blc block.Block) bool {
 	if len(blc.Transactions) == 0 {
 		fmt.Println("Invalid block: no transactions (coinbase required)")
 		return false
@@ -51,8 +51,8 @@ func (s *NodeService) validataBlock(blc block.Block) bool {
 		fmt.Println("Invalid block: previous hash does not match")
 		return false
 	}
-	if blc.Index < s.node.CountBlocksinChain() {
-		fmt.Println("Invalid block: index is not greater than last block index")
+	if blc.Index != s.node.CountBlocksinChain() {
+		fmt.Println("Invalid block: index must equal current chain height")
 		return false
 	}
 	if !s.node.IsValidPoW(&blc) {

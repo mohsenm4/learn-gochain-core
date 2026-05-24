@@ -34,6 +34,11 @@ func (s *NodeService) maybeAdjustDifficulty(b *block.Block) {
 	if err != nil || windowStart == nil {
 		return
 	}
+	// Skip the first window: genesis has a fixed historical timestamp,
+	// so elapsed would span years and produce a bogus adjustment.
+	if windowStart.PrevHash == "0" {
+		return
+	}
 	elapsed := b.Timestamp.Sub(windowStart.Timestamp).Seconds()
 	before := s.node.GetChainDifficulty()
 	s.node.AdjustDifficulty(int64(elapsed))

@@ -9,10 +9,6 @@ import (
 func (h *Handler) GetTxStatus(c *gin.Context) {
 	id := c.Param("id")
 	status := h.node.GetTxStatus(id)
-	if !status.Found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "transaction not confirmed"})
-		return
-	}
 	c.JSON(http.StatusOK, status)
 }
 
