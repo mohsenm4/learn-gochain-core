@@ -94,6 +94,7 @@ func (s *NodeService) rehydrateFromRepo() error {
 
 func (s *NodeService) SubmitTransactions(txs []transaction.Transaction) error {
 	var firstErr error
+	var accepted []transaction.Transaction
 	for i := range txs {
 		tx := txs[i]
 		tx.ID = tx.ComputeID()
@@ -107,6 +108,10 @@ func (s *NodeService) SubmitTransactions(txs []transaction.Transaction) error {
 			continue
 		}
 		s.node.AddTransactionMempool(tx)
+		accepted = append(accepted, tx)
+	}
+	if len(accepted) > 0 {
+		s.gossipTxs(accepted)
 	}
 	if s.node.SizeMempool() >= s.config.BatchSize {
 		select {

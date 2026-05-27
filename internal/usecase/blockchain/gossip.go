@@ -142,6 +142,23 @@ func (s *NodeService) forward(msg network.Message) {
 	s.gossiper.Gossip(msg)
 }
 
+// gossipTxs relays newly-accepted transactions to peers. markSeen prevents
+// double-broadcasting when these same txs arrived via gossip in the first place.
+func (s *NodeService) gossipTxs(txs []transaction.Transaction) {
+	if s.gossiper == nil || len(txs) == 0 {
+		return
+	}
+	data, err := json.Marshal(txs)
+	if err != nil {
+		return
+	}
+	msg := network.Message{Type: "tx", Data: data}
+	if !s.markSeen(messageID(msg)) {
+		return
+	}
+	s.gossiper.Gossip(msg)
+}
+
 func (s *NodeService) gossipBlock(blc *block.Block) {
 	if s.gossiper == nil {
 		return

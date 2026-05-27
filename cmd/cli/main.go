@@ -162,7 +162,173 @@ func init() {
 			summary: "build, sign, and submit a transaction (optional 4th arg = fee, default 0)",
 			run:     runSend,
 		},
+		{
+			name:    "createhdwallet",
+			usage:   "createhdwallet <path> [passphrase]",
+			summary: "create a new HD wallet, print its mnemonic, save it to <path>",
+			run:     runCreateHDWallet,
+		},
+		{
+			name:    "restorehdwallet",
+			usage:   "restorehdwallet <path> \"<mnemonic words...>\" [passphrase]",
+			summary: "restore an HD wallet from a mnemonic (and optional passphrase)",
+			run:     runRestoreHDWallet,
+		},
+		{
+			name:    "nextreceive",
+			usage:   "nextreceive <hd_wallet_path> [passphrase]",
+			summary: "derive and print the next unused receive address",
+			run:     runNextReceive,
+		},
+		{
+			name:    "showxpub",
+			usage:   "showxpub <hd_wallet_path> [passphrase]",
+			summary: "export the read-only xpub for this wallet",
+			run:     runShowXPub,
+		},
+		{
+			name:    "xpubaddress",
+			usage:   "xpubaddress <xpub> <receive|change> <index>",
+			summary: "derive a child address from an xpub without touching any private key",
+			run:     runXPubAddress,
+		},
 	}
+}
+
+func runCreateHDWallet(api string, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("createhdwallet requires <path>")
+	}
+	path := args[0]
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("file already exists: %s (refusing to overwrite)", path)
+	}
+	passphrase := ""
+	if len(args) >= 2 {
+		passphrase = args[1]
+	}
+
+	h, mnemonic, err := wallet.NewHDWallet()
+	if err != nil {
+		return err
+	}
+	if passphrase != "" {
+		// Rebuild with the passphrase baked in so the saved file matches.
+		h, err = wallet.HDFromMnemonic(mnemonic, passphrase)
+		if err != nil {
+			return err
+		}
+	}
+	if err := h.Save(path); err != nil {
+		return err
+	}
+	first, err := h.DeriveReceive(0)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("HD wallet created\n  path:       %s\n  mnemonic:   %s\n  first addr: %s\n",
+		path, mnemonic, first.Address())
+	if passphrase != "" {
+		fmt.Println("  passphrase: (set — store separately; losing it = losing the funds)")
+	}
+	fmt.Println("WRITE THESE WORDS DOWN. They are the only backup of this wallet.")
+	return nil
+}
+
+func runRestoreHDWallet(api string, args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("restorehdwallet requires <path> and a quoted mnemonic")
+	}
+	path := args[0]
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("file already exists: %s (refusing to overwrite)", path)
+	}
+	mnemonic := args[1]
+	passphrase := ""
+	if len(args) >= 3 {
+		passphrase = args[2]
+	}
+	h, err := wallet.HDFromMnemonic(mnemonic, passphrase)
+	if err != nil {
+		return err
+	}
+	if err := h.Save(path); err != nil {
+		return err
+	}
+	first, err := h.DeriveReceive(0)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("HD wallet restored\n  path:       %s\n  first addr: %s\n", path, first.Address())
+	return nil
+}
+
+func runNextReceive(api string, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("nextreceive requires <hd_wallet_path>")
+	}
+	passphrase := ""
+	if len(args) >= 2 {
+		passphrase = args[1]
+	}
+	h, err := wallet.LoadHDWallet(args[0], passphrase)
+	if err != nil {
+		return err
+	}
+	w, err := h.NextReceive()
+	if err != nil {
+		return err
+	}
+	if err := h.Save(args[0]); err != nil {
+		return fmt.Errorf("persist counter: %w", err)
+	}
+	fmt.Println(w.Address())
+	return nil
+}
+
+func runShowXPub(api string, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("showxpub requires <hd_wallet_path>")
+	}
+	passphrase := ""
+	if len(args) >= 2 {
+		passphrase = args[1]
+	}
+	h, err := wallet.LoadHDWallet(args[0], passphrase)
+	if err != nil {
+		return err
+	}
+	fmt.Println(h.XPub().Encode())
+	return nil
+}
+
+func runXPubAddress(api string, args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("xpubaddress requires <xpub> <receive|change> <index>")
+	}
+	xpub, err := wallet.DecodeXPub(args[0])
+	if err != nil {
+		return err
+	}
+	index64, err := strconv.ParseUint(args[2], 10, 32)
+	if err != nil {
+		return fmt.Errorf("invalid index: %w", err)
+	}
+	idx := uint32(index64)
+	var addr string
+	switch args[1] {
+	case "receive":
+		addr, err = xpub.DeriveReceive(idx)
+	case "change":
+		addr, err = xpub.DeriveChange(idx)
+	default:
+		return fmt.Errorf("branch must be 'receive' or 'change', got %q", args[1])
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Println(addr)
+	return nil
 }
 
 func runSend(api string, args []string) error {

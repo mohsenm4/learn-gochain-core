@@ -316,24 +316,24 @@ Each step made addresses **shorter, safer, or more expressive**.
 Our project's wallet ([internal/domain/wallet/wallet.go](../../internal/domain/wallet/wallet.go))
 takes some shortcuts compared to Bitcoin. Here is the honest comparison:
 
-| Concept              | Bitcoin                                  | Our Go node                                 |
-| -------------------- | ---------------------------------------- | ------------------------------------------- |
-| Curve                | `secp256k1`                              | `P-256` (Go stdlib)                         |
-| Signature scheme     | ECDSA + Schnorr (taproot)                | ECDSA only                                  |
-| Private key size     | 256 bits                                 | 256 bits                                    |
-| Public key encoding  | 33 bytes compressed (`02`/`03` prefix)   | 64 bytes uncompressed (raw `X‖Y`)           |
-| Address derivation   | `RIPEMD160(SHA256(pubkey))`              | first 20 bytes of `SHA256(pubkey)`          |
-| Address format       | base58check or bech32/bech32m            | hex string with `0x` prefix                 |
-| Error detection      | base58check / bech32 checksum            | **none** (a typo silently sends to nowhere) |
+| Concept             | Bitcoin                                | Our Go node                                        |
+| ------------------- | -------------------------------------- | -------------------------------------------------- |
+| Curve               | `secp256k1`                            | `P-256` (Go stdlib)                                |
+| Signature scheme    | ECDSA + Schnorr (taproot)              | ECDSA only                                         |
+| Private key size    | 256 bits                               | 256 bits                                           |
+| Public key encoding | 33 bytes compressed (`02`/`03` prefix) | 33 bytes compressed (`elliptic.MarshalCompressed`) |
+| Address derivation  | `RIPEMD160(SHA256(pubkey))`            | `RIPEMD160(SHA256(pubkey))` — same as Bitcoin      |
+| Address format      | base58check or bech32/bech32m          | hex string with `0x` prefix                        |
+| Error detection     | base58check / bech32 checksum          | 4-byte `SHA256(SHA256(payload))[:4]` checksum      |
 
 **Things we could add later if we want to look more "real":**
 
 1. Switch to `secp256k1` (drop `crypto/elliptic`, pull in a `secp256k1` lib).
-2. Use **compressed public keys** (33 bytes) in storage and on the wire.
-3. Hash addresses with `RIPEMD160(SHA256(K))` instead of truncated SHA256.
-4. Add a **base58check** or **bech32**-style encoder so addresses have a
-   checksum — even a tiny one. A mistyped address today silently fails.
-5. Add a **WIF**-like format for exporting/importing single keys.
+2. Replace the hex `0x…` address with **base58check** or **bech32**. The 4-byte
+   checksum is already in place — base58 would just be a different encoding of
+   the same payload.
+3. Add a **WIF**-like format for exporting/importing single keys (we currently
+   store the raw hex private key in the wallet JSON).
 
 The chapter gives us the recipe; the next chapters (HD wallets, seeds, BIP39)
 will tell us how real wallets do this at scale.
